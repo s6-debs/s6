@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+lib := \$${prefix}/lib/$(DEB_HOST_MULTIARCH)
+
+%:
+	dh $@ --parallel --autodest
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		--libdir=$(lib) \
+		--dynlibdir=$(lib) \
+		--libexecdir=\$${prefix}/lib/s6 \
+		--with-dynlib=$(lib) \
+		--with-sysdeps=$(lib)/skalibs/sysdeps \
+		--enable-shared \
+		--disable-allstatic
+
+

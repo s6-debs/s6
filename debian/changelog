@@ -1,0 +1,5 @@
+s6 (2.8.0.1-1) stable; urgency=medium
+
+  * Initial release.
+
+ -- multiplexd <multi@in-addr.xyz>  Thu, 12 Sep 2019 21:25:42 +0100
