@@ -1,3 +1,9 @@
+s6 (2.9.0.0-1) stable; urgency=medium
+
+  * New upstream release.
+
+ -- multiplexd <multi@in-addr.xyz>  Fri, 11 Oct 2019 23:45:53 +0100
+
 s6 (2.8.0.1-2) stable; urgency=medium
 
   * Bump revision to enable upgrade path from old s6-packaging
