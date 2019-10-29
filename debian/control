@@ -3,7 +3,7 @@ Section: admin
 Priority: optional
 Maintainer: multiplexd <multi@in-addr.xyz>
 Uploaders: multiplexd <multi@in-addr.xyz>
-Build-Depends: debhelper (>= 10), libskarnet-dev (>= 2.9.0.0), libexecline-dev (>= 2.5.2.0)
+Build-Depends: debhelper (>= 10), libskarnet-dev (>= 2.9.1.0), libexecline-dev (>= 2.5.3.0)
 Standards-Version: 3.9.8
 Homepage: https://skarnet.org/software/s6/
 
@@ -38,8 +38,8 @@ Section: libdevel
 Depends:
  ${misc:Depends},
  libs6-2.9 (= ${binary:Version}),
- libexecline-dev (>= 2.5.2.0),
- libskarnet-dev (>= 2.9.0.0)
+ libexecline-dev (>= 2.5.3.0),
+ libskarnet-dev (>= 2.9.1.0)
 Description: skarnet's small and secure supervision software suite (development files)
  s6 is a small suite of programs for UNIX, designed to allow process
  supervision (a.k.a service supervision), in the line of daemontools and runit.
