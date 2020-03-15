@@ -18,6 +18,27 @@
 
 <h1> What has changed in s6 </h1>
 
+<h2> in 2.9.1.0 </h2>
+
+<ul>
+ <li> <a href="//skarnet.org/software/skalibs/"></a>skalibs</a>
+dependency bumped to 2.9.1.0. </li>
+ <li> <a href="//skarnet.org/software/execline/">execline</a>
+dependency bumped to 2.6.0.0. (And made optional, see below.) </li>
+ <li> The <a href="//skarnet.org/software/execline/">execline</a>
+dependency is now optional, and can be disabled via the <tt>--disable-execline</tt>
+option to configure. Functionality that depends on execline in s6 binaries is
+disabled when execline support is disabled. </li>
+ <li> A new '?' directive has been added to <a href="s6-log.html">s6-log</a>,
+it declares a processor command line that is spawned with the <tt>/bin/sh</tt>
+interpreter. </li>
+ <li> A new <tt>-X</tt> option has been added to <a href="s6-svscan.html>s6-svscan</a>
+to better support <a href="//skarnet.org/software/s6-linux-init/">s6-linux-init</a>
+installations. </li>
+ <li> <a href="s6-svscan.html>s6-svscan</a> now handles SIGPWR and SIGWINCH, when
+diverted, on systems that define those signals. </li>
+</ul>
+
 <h2> in 2.9.0.1 </h2>
 
 <ul>

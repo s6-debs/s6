@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+
 #include <skalibs/allreadwrite.h>
 #include <skalibs/sgetopt.h>
 #include <skalibs/types.h>
@@ -18,16 +19,18 @@
 #include <skalibs/sig.h>
 #include <skalibs/selfpipe.h>
 #include <skalibs/environ.h>
+
 #include <s6/config.h>
 #include <s6/s6-supervise.h>
 
-#define USAGE "s6-svscan [ -S | -s ] [ -c maxservices ] [ -t timeout ] [ -d notif ] [ dir ]"
+#define USAGE "s6-svscan [ -S | -s ] [ -c maxservices ] [ -t timeout ] [ -d notif ] [ -X consoleholder ] [ dir ]"
 #define dieusage() strerr_dieusage(100, USAGE)
 
 #define FINISH_PROG S6_SVSCAN_CTLDIR "/finish"
 #define CRASH_PROG S6_SVSCAN_CTLDIR "/crash"
 #define SIGNAL_PROG S6_SVSCAN_CTLDIR "/SIG"
 #define SIGNAL_PROG_LEN (sizeof(SIGNAL_PROG) - 1)
+#define SPECIAL_LOGGER_SERVICE "s6-svscan-log"
 
 #define DIR_RETRY_TIMEOUT 3
 #define CHECK_RETRY_TIMEOUT 4
@@ -52,6 +55,16 @@ static int wantreap = 1 ;
 static int wantscan = 1 ;
 static unsigned int wantkill = 0 ;
 static int cont = 1 ;
+static unsigned int consoleholder = 0 ;
+
+static void restore_console (void)
+{
+  if (consoleholder)
+  {
+    fd_move(2, consoleholder) ;
+    if (fd_copy(1, 2) < 0) strerr_warnwu1sys("restore stdout") ;
+  }
+}
 
 static void panicnosp (char const *) gccattr_noreturn ;
 static void panicnosp (char const *errmsg)
@@ -59,8 +72,8 @@ static void panicnosp (char const *errmsg)
   char const *eargv[2] = { CRASH_PROG, 0 } ;
   strerr_warnwu1sys(errmsg) ;
   strerr_warnw2x("executing into ", eargv[0]) ;
-  execve(eargv[0], (char *const *)eargv, (char *const *)environ) ;
- /* and if that execve fails, screw it and just die */
+  execv(eargv[0], (char *const *)eargv) ;
+ /* and if that exec fails, screw it and just die */
   strerr_dieexec(111, eargv[0]) ;
 }
 
@@ -69,6 +82,7 @@ static void panic (char const *errmsg)
 {
   int e = errno ;
   selfpipe_finish() ;
+  restore_console() ;
   errno = e ;
   panicnosp(errmsg) ;
 }
@@ -298,6 +312,10 @@ static void trystart (unsigned int i, char const *name, int islog)
       if (services[i].flaglog)
         if (fd_move(!islog, services[i].p[!islog]) == -1)
           strerr_diefu2sys(111, "set fds for ", name) ;
+      if (consoleholder
+       && !strcmp(name, SPECIAL_LOGGER_SERVICE)
+       && fd_move(2, consoleholder) < 0)  /* autoclears coe */
+         strerr_diefu1sys(111, "restore console fd for service " SPECIAL_LOGGER_SERVICE) ;
       xpathexec_run(S6_BINPREFIX "s6-supervise", cargv, (char const **)environ) ;
     }
   }
@@ -458,7 +476,7 @@ int main (int argc, char const *const *argv)
     unsigned int t = 0 ;
     for (;;)
     {
-      int opt = subgetopt_r(argc, argv, "Sst:c:d:", &l) ;
+      int opt = subgetopt_r(argc, argv, "Sst:c:d:X:", &l) ;
       if (opt == -1) break ;
       switch (opt)
       {
@@ -470,6 +488,11 @@ int main (int argc, char const *const *argv)
           if (!uint0_scan(l.arg, &notif)) dieusage() ;
           if (notif < 3) strerr_dief1x(100, "notification fd must be 3 or more") ;
           if (fcntl(notif, F_GETFD) < 0) strerr_dief1sys(100, "invalid notification fd") ;
+          break ;
+        case 'X' :
+          if (!uint0_scan(l.arg, &consoleholder)) dieusage() ;
+          if (consoleholder < 3) strerr_dief1x(100, "console holder fd must be 3 or more") ;
+          if (fcntl(consoleholder, F_GETFD) < 0) strerr_dief1sys(100, "invalid console holder fd") ;
           break ;
         default : dieusage() ;
       }
@@ -487,6 +510,7 @@ int main (int argc, char const *const *argv)
   */
 
   if (argc && (chdir(argv[0]) < 0)) strerr_diefu1sys(111, "chdir") ;
+  if (consoleholder && coe(consoleholder) < 0) strerr_diefu1sys(111, "coe console holder") ;
   x[1].fd = s6_supervise_lock(S6_SVSCAN_CTLDIR) ;
   x[0].fd = selfpipe_init() ;
   if (x[0].fd < 0) strerr_diefu1sys(111, "selfpipe_init") ;
@@ -506,10 +530,15 @@ int main (int argc, char const *const *argv)
     {
       sigaddset(&set, SIGUSR1) ;
       sigaddset(&set, SIGUSR2) ;
+#ifdef SIGPWR
+      sigaddset(&set, SIGPWR) ;
+#endif
+#ifdef SIGWINCH
+      sigaddset(&set, SIGWINCH) ;
+#endif
     }
     if (selfpipe_trapset(&set) < 0) strerr_diefu1sys(111, "trap signals") ;
   }
-
   if (notif)
   {
     fd_write(notif, "\n", 1) ;
@@ -554,11 +583,12 @@ int main (int argc, char const *const *argv)
 
     selfpipe_finish() ;
     killthem() ;
+    restore_console() ;
     reap() ;
   }
   {
     char const *eargv[3] = { FINISH_PROG, finish_arg, 0 } ;
-    execve(eargv[0], (char **)eargv, (char *const *)environ) ;
+    execv(eargv[0], (char **)eargv) ;
   }
   panicnosp("exec finish script " FINISH_PROG) ;
 }
