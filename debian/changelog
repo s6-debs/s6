@@ -1,3 +1,9 @@
+s6 (2.9.1.0-1) stable; urgency=medium
+
+  * New upstream release.
+
+ -- multiplexd <multi@in-addr.xyz>  Sun, 15 Mar 2020 14:31:35 +0000
+
 s6 (2.9.0.1-1) stable; urgency=medium
 
   * New upstream release.
