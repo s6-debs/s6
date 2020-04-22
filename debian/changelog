@@ -1,3 +1,9 @@
+s6 (2.9.1.0-2) stable; urgency=medium
+
+  * Fix dependencies on execline.
+
+ -- multiplexd <multi@in-addr.xyz>  Mon, 30 Mar 2020 13:45:24 +0100
+
 s6 (2.9.1.0-1) stable; urgency=medium
 
   * New upstream release.
