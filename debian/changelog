@@ -1,3 +1,9 @@
+s6 (2.9.1.0-3) stable; urgency=low
+
+  * Source package cleaning and metadata fixes.
+
+ -- multiplexd <multi@in-addr.xyz>  Wed, 10 Jun 2020 19:16:56 +0100
+
 s6 (2.9.1.0-2) stable; urgency=medium
 
   * Fix dependencies on execline.

@@ -2,7 +2,6 @@ Source: s6
 Section: admin
 Priority: optional
 Maintainer: multiplexd <multi@in-addr.xyz>
-Uploaders: multiplexd <multi@in-addr.xyz>
 Build-Depends: debhelper (>= 10), libskarnet-dev (>= 2.9.2.0), libexecline-dev (>= 2.6.0.0)
 Standards-Version: 3.9.8
 Homepage: https://skarnet.org/software/s6/
