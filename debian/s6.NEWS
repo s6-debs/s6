@@ -1,0 +1,13 @@
+s6 (2.10.0.2-1) buster; urgency=medium
+
+  * s6 version 2.10.0.0 is a new major version, which brings a number of
+    significant and potentially breaking changes. You should restart
+    your supervision trees as soon as possible after installing this
+    update, as there have been changes in the control interface between
+    s6-svscan/s6-svscanctl and s6-supervise/s6-svc.
+
+  * This release changes the command line interface of s6-svscan, and
+    s6-svscanctl. In particular, the -s and -S options to s6-svscan, and the
+    digit options (-6, -7) to s6-svscanctl have been removed.
+
+ -- multi <multi@in-addr.xyz>  Sat, 06 Mar 2021 13:20:58 +0000
