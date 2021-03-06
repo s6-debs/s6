@@ -23,6 +23,7 @@
 /s6-svwait
 /s6-svlisten1
 /s6-svlisten
+/s6-svperms
 /s6-notifyoncheck
 /s6-svdt
 /s6-svdt-clear
@@ -66,3 +67,4 @@
 /s6-fdholder-transferdumpc
 /s6-applyuidgid
 /s6-setuidgid
+/s6-usertree-maker

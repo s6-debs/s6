@@ -28,7 +28,7 @@ description of the different parts of s6.
 
 <p>
  At its core, s6 is a <em>process supervision suite</em>, like its ancestor
-<a href="http://cr.yp.to/daemontools.html">daemontools</a> and its
+<a href="https://cr.yp.to/daemontools.html">daemontools</a> and its
 close cousin
 <a href="http://smarden.org/runit/">runit</a>.
 </p>
@@ -288,7 +288,7 @@ sometimes, they are daemons themselves, designed to be supervised.
 <p>
  s6, like other <a href="//skarnet.org/software/">skarnet.org
 software</a>, makes heavy use of
-<a href="http://en.wikipedia.org/wiki/Chain_loading#Chain_loading_in_Unix">chain
+<a href="https://en.wikipedia.org/wiki/Chain_loading#Chain_loading_in_Unix">chain
 loading</a>, also known as "Bernstein chaining": a lot of s6 tools will
 perform some action that changes the process state, then execute into the
 rest of their command line. This allows the user to change the process state
@@ -379,6 +379,30 @@ implemented for instance in the
 <a href="//skarnet.org/software/s6-rc/">s6-rc</a> package.
 </p>
 
+<h2> Fine-grained control over services </h2>
+
+<p>
+ s6 provides you with a few more tools to control and monitor your
+services. services. For instance:
+</p>
+
+<ul>
+ <li> <a href="s6-svstat.html">s6-svstat</a> gives you access to
+the detailed state of a service </li>
+ <li> <a href="s6-svperms">s6-svperms</a> allows you to configure
+what users can read that state, what users can send control
+commands to your service, and what users can be notified of
+service start/stop events </li>
+ <li> <a href="s6-svdt.html">s6-svdt</a>
+allows you to see what caused the latest deaths of a supervised
+process </li>
+</ul>
+
+<p>
+ These tools make s6 the most powerful and flexible of the existing
+process supervision suites.
+</p>
+
 <h2> Additional utilities </h2>
 
 <p>
@@ -461,7 +485,7 @@ descriptors. </li>
 
 <p>
  Note that "socket activation", one of the main advertised benefits of the
-<a href="http://www.freedesktop.org/wiki/Software/systemd/">systemd</a>
+<a href="https://www.freedesktop.org/wiki/Software/systemd/">systemd</a>
 init system, sounds similar to fd-holding.
 The reality is that socket activation is a mixture of several different
 mechanisms, one of which is fd-holding; s6 allows you to implement the

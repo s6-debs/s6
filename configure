@@ -342,7 +342,6 @@ tryflag CFLAGS_AUTO -fno-exceptions
 tryflag CFLAGS_AUTO -fno-unwind-tables
 tryflag CFLAGS_AUTO -fno-asynchronous-unwind-tables
 tryflag CFLAGS_AUTO -Wa,--noexecstack
-tryflag CFLAGS -fno-stack-protector
 tryflag CPPFLAGS_AUTO -Werror=implicit-function-declaration
 tryflag CPPFLAGS_AUTO -Werror=implicit-int
 tryflag CPPFLAGS_AUTO -Werror=pointer-sign
@@ -365,19 +364,19 @@ fi
 
 LDFLAGS_SHARED="${LDFLAGS_SHARED}${addlibdpath}"
 
-if $allstatic ; then
-  LDFLAGS_NOSHARED="${LDFLAGS_NOSHARED}${addlibspath}"
-  tryldflag LDFLAGS_NOSHARED -Wl,--gc-sections
-else
-  LDFLAGS_NOSHARED="${LDFLAGS_NOSHARED}${addlibdpath}"
-fi
-
 if test -z "$vpaths" ; then
   while read dep ; do
     base=$(basename $dep) ;
     vpaths="$vpaths /usr/lib/$base"
     addlibspath="$addlibspath -L/usr/lib/$base"
   done < package/deps-build  
+fi
+
+if $allstatic ; then
+  LDFLAGS_NOSHARED="${LDFLAGS_NOSHARED}${addlibspath}"
+  tryldflag LDFLAGS_NOSHARED -Wl,--gc-sections
+else
+  LDFLAGS_NOSHARED="${LDFLAGS_NOSHARED}${addlibdpath}"
 fi
 
 echo "Creating config.mak..."

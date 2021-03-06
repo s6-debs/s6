@@ -20,6 +20,7 @@ s6-permafailon \
 s6-svwait \
 s6-svlisten1 \
 s6-svlisten \
+s6-svperms \
 s6-notifyoncheck \
 s6-envdir \
 s6-envuidgid \
@@ -57,3 +58,7 @@ s6-setuidgid
 LIBEXEC_TARGETS := s6lockd-helper
 
 LIB_DEFS := S6=s6
+
+ifneq ($(EXECLINE_LIB),)
+BIN_TARGETS += s6-usertree-maker
+endif

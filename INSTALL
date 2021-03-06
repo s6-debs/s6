@@ -6,12 +6,13 @@ Build Instructions
 
   - A POSIX-compliant C development environment
   - GNU make version 3.81 or later
-  - skalibs version 2.9.2.1 or later: http://skarnet.org/software/skalibs/
-  - Optional: execline version 2.6.0.1 or later: http://skarnet.org/software/execline/
+  - skalibs version 2.10.0.2 or later: https://skarnet.org/software/skalibs/
+  - Optional: nsss version 0.1.0.0 or later: https://skarnet.org/software/nsss/
+  - Optional (but recommended): execline version 2.7.0.1 or later: https://skarnet.org/software/execline/
 
  This software will run on any operating system that implements
 POSIX.1-2008, available at:
-  http://pubs.opengroup.org/onlinepubs/9699919799/
+  https://pubs.opengroup.org/onlinepubs/9699919799/
 
 
 * Standard usage
@@ -95,7 +96,7 @@ linking against the static libc with --enable-static-libc.
  (If you are using a GNU/Linux system, be aware that the GNU libc
 behaves badly with static linking and produces huge executables,
 which is why it is not the default. Other libcs are better suited
-to static linking, for instance musl: http://musl-libc.org/)
+to static linking, for instance musl: https://musl-libc.org/)
 
  s6 includes software running at a very low level, including a
 program that may run as process 1: to avoid run-time dependencies,

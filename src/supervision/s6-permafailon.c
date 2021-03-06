@@ -3,20 +3,24 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <signal.h>
+
 #include <skalibs/types.h>
 #include <skalibs/strerr2.h>
 #include <skalibs/bitarray.h>
 #include <skalibs/sig.h>
 #include <skalibs/tai.h>
-#include <skalibs/djbunix.h>
+#include <skalibs/exec.h>
+
 #include <s6/s6-supervise.h>
 
 #define USAGE "s6-permafailon seconds deathcount statuslist prog..."
 #define dieusage() strerr_dieusage(100, USAGE)
 
-static void list_scan (char const *s, unsigned char *codes, sigset_t *sigs)
+static inline void list_scan (char const *s, unsigned char *codes, sigset_t *sigs)
 {
   size_t pos = 0 ;
+  memset(codes, 0, 32) ;
+  sigemptyset(sigs) ;
   while (s[pos])
   {
     unsigned int u ;
@@ -55,7 +59,7 @@ static void list_scan (char const *s, unsigned char *codes, sigset_t *sigs)
   }
 }
 
-int main (int argc, char const *const *argv, char const *const *envp)
+int main (int argc, char const *const *argv)
 {
   unsigned char codes[32] ;
   sigset_t sigs ;
@@ -118,5 +122,5 @@ int main (int argc, char const *const *argv, char const *const *envp)
   }
 
  cont:
-  xpathexec0_run(argv + 4, envp) ;
+  xexec0(argv+4) ;
 }

@@ -31,8 +31,7 @@
 #include <skalibs/sig.h>
 #include <skalibs/selfpipe.h>
 #include <skalibs/siovec.h>
-#include <skalibs/skamisc.h>
-#include <skalibs/environ.h>
+#include <skalibs/exec.h>
 
 #include <s6/config.h>
 
@@ -40,12 +39,13 @@
 #include <execline/config.h>
 #endif
 
-#define USAGE "s6-log [ -d notif ] [ -q | -v ] [ -b ] [ -p ] [ -t ] [ -e ] [ -l linelimit ] logging_script"
+#define USAGE "s6-log [ -d notif ] [ -q | -v ] [ -b ] [ -p ] [ -l linelimit ] logging_script"
 #define dieusage() strerr_dieusage(100, USAGE)
 #define dienomem() strerr_diefu1sys(111, "stralloc_catb")
 
 #define LINELIMIT_MIN 48
 
+static mode_t mask ;
 static int flagprotect = 0 ;
 static int flagexiting = 0 ;
 static unsigned int verbosity = 1 ;
@@ -330,7 +330,7 @@ static inline void exec_processor (logdir_t *ldp)
   if (fd_move(5, fd) < 0) strerr_diefu3sys(111, "fd_move ", ldp->dir, "/newstate") ;
   selfpipe_finish() ;
   sig_restore(SIGPIPE) ;
-  xpathexec_run(cargv[0], cargv, (char const *const *)environ) ;
+  xexec(cargv) ;
 }
 
 static int rotator (logdir_t *ldp)
@@ -367,22 +367,10 @@ static int rotator (logdir_t *ldp)
       char x[dirlen + 9] ;
       memcpy(x, ldp->dir, dirlen) ;
       memcpy(x + dirlen, "/current", 9) ;
-      fd = open_append(x) ;
+      fd = openc_append(x) ;
       if (fd < 0)
       {
         if (verbosity) strerr_warnwu2sys("open_append ", x) ;
-        goto fail ;
-      }
-      if (coe(fd) < 0)
-      {
-        fd_close(fd) ;
-        if (verbosity) strerr_warnwu2sys("coe ", x) ;
-        goto fail ;
-      }
-      if (fd_chmod(fd, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) < 0)
-      {
-        fd_close(fd) ;
-        if (verbosity) strerr_warnwu3sys("fchmod ", x, " to 0644") ;
         goto fail ;
       }
       fd_close(ldp->fd) ;
@@ -395,9 +383,9 @@ static int rotator (logdir_t *ldp)
       char x[dirlen + 10] ;
       memcpy(x, ldp->dir, dirlen) ;
       memcpy(x + dirlen, "/previous", 10) ;
-      if (chmod(x, S_IRWXU | S_IRGRP | S_IROTH) < 0)
+      if (chmod(x, mask | S_IXUSR) < 0)
       {
-        if (verbosity) strerr_warnwu3sys("chmod ", x, " to 0744") ;
+        if (verbosity) strerr_warnwu2sys("chmod ", x) ;
         goto fail ;
       }
       if (ldp->processor) goto runprocessor ;
@@ -448,10 +436,10 @@ static int rotator (logdir_t *ldp)
         goto fail ;
       }
       tain_now_g() ;
-      if (fd_chmod(fd, S_IRWXU | S_IRGRP | S_IROTH) < 0)
+      if (fd_chmod(fd, mask | S_IXUSR) < 0)
       {
         fd_close(fd) ;
-        if (verbosity) strerr_warnwu3sys("fd_chmod ", x, " to 0744") ;
+        if (verbosity) strerr_warnwu2sys("fd_chmod ", x) ;
         goto fail ;
       }
       fd_close(fd) ;
@@ -580,13 +568,14 @@ static inline void logdir_init (unsigned int index, uint32_t s, uint32_t n, uint
   ldp->fd = -1 ;
   ldp->rstate = ROTSTATE_WRITABLE ;
   r = mkdir(ldp->dir, S_IRWXU | S_ISGID) ;
-  if ((r < 0) && (errno != EEXIST)) strerr_diefu2sys(111, "mkdir ", name) ;
+  if (r < 0 && errno != EEXIST) strerr_diefu2sys(111, "mkdir ", name) ;
   memcpy(x, name, dirlen) ;
   memcpy(x + dirlen, "/lock", 6) ;
-  ldp->fdlock = open_append(x) ;
-  if ((ldp->fdlock) < 0) strerr_diefu2sys(111, "open_append ", x) ;
-  if (lock_exnb(ldp->fdlock) < 0) strerr_diefu2sys(111, "lock_exnb ", x) ;
-  if (coe(ldp->fdlock) < 0) strerr_diefu2sys(111, "coe ", x) ;
+  ldp->fdlock = openc_create(x) ;
+  if (ldp->fdlock < 0) strerr_diefu2sys(111, "open ", x) ;
+  r = fd_lock(ldp->fdlock, 1, 1) ;
+  if (!r) errno = EBUSY ;
+  if (r < 1) strerr_diefu2sys(111, "lock ", x) ;
   memcpy(x + dirlen + 1, "current", 8) ;
   if (stat(x, &st) < 0)
   {
@@ -628,11 +617,10 @@ static inline void logdir_init (unsigned int index, uint32_t s, uint32_t n, uint
   st.st_size = 0 ;
   memcpy(x + dirlen + 1, "current", 8) ;
  opencurrent:
-  ldp->fd = open_append(x) ;
+  ldp->fd = openc_append(x) ;
   if (ldp->fd < 0) strerr_diefu2sys(111, "open_append ", x) ;
-  if (fd_chmod(ldp->fd, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) == -1)
+  if (fd_chmod(ldp->fd, mask) == -1)
     strerr_diefu2sys(111, "fd_chmod ", x) ;
-  if (coe(ldp->fd) < 0) strerr_diefu2sys(111, "coe ", x) ;
   ldp->b = st.st_size ;
   tain_copynow(&ldp->deadline) ;
   bufalloc_init(&ldp->out, &logdir_write, index) ;
@@ -654,9 +642,9 @@ static inline int logdir_finalize (logdir_t *ldp)
     }
     case ROTSTATE_ENDFCHMOD :
     {
-      if (fd_chmod(ldp->fd, S_IRWXU | S_IRGRP | S_IROTH) < 0)
+      if (fd_chmod(ldp->fd, mask | S_IXUSR) < 0)
       {
-        if (verbosity) strerr_warnwu3sys("fd_chmod ", ldp->dir, "/current to 0744") ;
+        if (verbosity) strerr_warnwu3sys("fd_chmod ", ldp->dir, "/current") ;
         goto fail ;
       }
       ldp->rstate = ROTSTATE_END ;
@@ -734,8 +722,6 @@ static inline void script_firstpass (char const *const *argv, unsigned int *sell
         if ((*argv)[1]) goto fail ;
         gf |= 2 ;
         break ;
-      case 'e' :
-        if (verbosity) strerr_warnw1x("directive e is deprecated, use 2 instead") ;
       case '1' :
       case '2' :
         if ((*argv)[1]) goto fail ;
@@ -772,7 +758,7 @@ static inline void script_firstpass (char const *const *argv, unsigned int *sell
   strerr_dief2x(100, "syntax error at directive: ", *argv) ;
 }
 
-static inline void script_secondpass (char const *const *argv, scriptelem_t *script, sel_t *selections, act_t *actions, unsigned int compat_gflags)
+static inline void script_secondpass (char const *const *argv, scriptelem_t *script, sel_t *selections, act_t *actions)
 {
   tain_t retrytto ;
   unsigned int fd2_size = 200 ;
@@ -870,11 +856,9 @@ static inline void script_secondpass (char const *const *argv, scriptelem_t *scr
         actions[act++] = a ; flagacted = 1 ; flags = 0 ;
         break ;
       }
-      case 'e' :
       case '2' :
       {
         act_t a = { .type = ACTTYPE_FD2, .flags = flags, .data = { .fd2_size = fd2_size } } ;
-        if (compat_gflags & 2) a.flags |= 1 ;
         actions[act++] = a ; flagacted = 1 ; flags = 0 ;
         break ;
       }
@@ -888,7 +872,6 @@ static inline void script_secondpass (char const *const *argv, scriptelem_t *scr
       case '/' :
       {
         act_t a = { .type = ACTTYPE_DIR, .flags = flags, .data = { .ld = lidx } } ;
-        if (compat_gflags & 1) a.flags |= 1 ;
         logdir_init(lidx, s, n, tolerance, maxdirsize, &retrytto, processor, *argv, flags) ;
         lidx++ ;
         actions[act++] = a ; flagacted = 1 ; flags = 0 ;
@@ -1026,6 +1009,29 @@ static void prepare_to_exit (void)
   flagexiting = 1 ;
 }
 
+static inline int getchunk (buffer *b, stralloc *sa, size_t linelimit)
+{
+  struct iovec v[2] ;
+  size_t pos ;
+  int r ;
+  buffer_rpeek(b, v) ;
+  pos = siovec_bytein(v, 2, "\n", 2) ;
+  if (linelimit && sa->len + pos > linelimit)
+  {
+    r = 2 ;
+    pos = linelimit - sa->len ;
+  }
+  else
+  {
+    r = pos < buffer_len(b) ;
+    pos += r ;
+  }
+  if (!stralloc_readyplus(sa, pos + (r == 2))) return -1 ;
+  buffer_getnofill(b, sa->s + sa->len, pos) ; sa->len += pos ;
+  if (r == 2) sa->s[sa->len++] = 0 ;
+  return r ;
+}
+
 static void normal_stdin (scriptelem_t const *script, unsigned int scriptlen, size_t linelimit, unsigned int gflags)
 {
   ssize_t r = sanitize_read(buffer_fill(buffer_0)) ;
@@ -1034,21 +1040,14 @@ static void normal_stdin (scriptelem_t const *script, unsigned int scriptlen, si
     if ((errno != EPIPE) && verbosity) strerr_warnwu1sys("read from stdin") ;
     prepare_to_exit() ;
   }
-  else if (r)
+  else if (r) for (;;)
   {
-    while (skagetln_nofill(buffer_0, &indata, '\n') > 0)
-    {
-      indata.s[indata.len - 1] = 0 ;
-      script_run(script, scriptlen, indata.s, indata.len - 1, gflags) ;
-      indata.len = 0 ;
-    }
-    if (linelimit && indata.len > linelimit)
-    {
-      if (!stralloc_0(&indata)) dienomem() ;
-      if (verbosity) strerr_warnw2x("input line too long, ", "inserting a newline") ;
-      script_run(script, scriptlen, indata.s, indata.len - 1, gflags) ;
-      indata.len = 0 ;
-    }
+    r = getchunk(buffer_0, &indata, linelimit) ;
+    if (r < 0) dienomem() ;
+    else if (!r) break ;
+    indata.s[indata.len - 1] = 0 ;
+    script_run(script, scriptlen, indata.s, indata.len - 1, gflags) ;
+    indata.len = 0 ;
   }
 }
 
@@ -1170,14 +1169,13 @@ int main (int argc, char const *const *argv)
   unsigned int linelimit = 8192 ;
   unsigned int notif = 0 ;
   unsigned int gflags = 0 ;
-  unsigned int compat_gflags = 0 ;
   int flagblock = 0 ;
   PROG = "s6-log" ;
   {
     subgetopt_t l = SUBGETOPT_ZERO ;
     for (;;)
     {
-      int opt = subgetopt_r(argc, argv, "qvbptel:d:", &l) ;
+      int opt = subgetopt_r(argc, argv, "qvbpl:d:", &l) ;
       if (opt == -1) break ;
       switch (opt)
       {
@@ -1185,8 +1183,6 @@ int main (int argc, char const *const *argv)
         case 'v' : verbosity++ ; break ;
         case 'b' : flagblock = 1 ; break ;
         case 'p' : flagprotect = 1 ; break ;
-        case 't' : gflags |= 1 ; compat_gflags |= 1 ; break ;
-        case 'e' : gflags |= 1 ; compat_gflags |= 2 ; break ;
         case 'l' : if (!uint0_scan(l.arg, &linelimit)) dieusage() ; break ;
         case 'd' :
           if (!uint0_scan(l.arg, &notif)) dieusage() ;
@@ -1200,12 +1196,14 @@ int main (int argc, char const *const *argv)
   }
   if (!argc) dieusage() ;
   if (linelimit && linelimit < LINELIMIT_MIN) linelimit = LINELIMIT_MIN ;
-  if (compat_gflags && verbosity) strerr_warnw1x("options -t and -e are deprecated") ;
   if (!fd_sanitize()) strerr_diefu1sys(111, "ensure stdin/stdout/stderr are open") ;
   if (!tain_now_set_stopwatch_g() && verbosity)
     strerr_warnwu1sys("set monotonic clock and read current time - timestamps may be wrong for a while") ;
   if (ndelay_on(0) < 0) strerr_diefu3sys(111, "set std", "in", " non-blocking") ;
   if (ndelay_on(1) < 0) strerr_diefu3sys(111, "set std", "out", " non-blocking") ;
+  mask = umask(0) ;
+  umask(mask) ;
+  mask = ~mask & 0666 ;
   script_firstpass(argv, &sellen, &actlen, &scriptlen, &gflags) ;
   {
     sel_t selections[sellen] ;
@@ -1214,7 +1212,7 @@ int main (int argc, char const *const *argv)
     logdir_t logdirblob[llen] ;
     iopause_fd x[3 + llen] ;
     logdirs = logdirblob ;
-    script_secondpass(argv, script, selections, actions, compat_gflags) ;
+    script_secondpass(argv, script, selections, actions) ;
     x[0].fd = selfpipe_init() ;
     if (x[0].fd < 0) strerr_diefu1sys(111, "selfpipe_init") ;
     if (sig_ignore(SIGPIPE) < 0) strerr_diefu1sys(111, "sig_ignore(SIGPIPE)") ;

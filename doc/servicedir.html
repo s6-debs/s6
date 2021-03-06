@@ -71,7 +71,7 @@ to log <em>stderr</em> as well, so the run script should make sure that its
 stderr goes into the log pipe. This
 is achieved by <tt><a href="//skarnet.org/software/execline/fdmove.html">fdmove</a>
 -c 2 1</tt> in <a href="//skarnet.org/software/execline/">execline</a>,
-and <tt>exec 2&gt;&amp;1</tt> in <a href="http://pubs.opengroup.org/onlinepubs/9699919799/utilities/sh.html">shell</a>.
+and <tt>exec 2&gt;&amp;1</tt> in <a href="https://pubs.opengroup.org/onlinepubs/9699919799/utilities/sh.html">shell</a>.
  </li>
 <li> adjust the environment for your <em>foo</em> daemon. Normally the run script
 inherits its environment from <a href="s6-supervise.html">s6-supervise</a>,
@@ -113,6 +113,10 @@ the signal that killed the run script). </li>
   <li> If the finish script exits 125, then <a href="s6-supervise.html">s6-supervise</a>
 interprets this as a permanent failure for the service, and does not restart it,
 as if an <a href="s6-svc.html">s6-svc -O</a> command had been sent. </li>
+  <li> If <a href="s6-supervise.html">s6-supervise</a> has been instructed to exit after
+the service dies, via a <tt>s6-svc -x</tt> command or a SIGHUP, then the next
+invocation of <tt>finish</tt> will (obviously) be the last, and it will run with
+stdin and stdout pointing to <tt>/dev/null</tt>. </li>
  </ul> </li>
  <li style="margin-bottom:1em"> A directory named <tt>supervise</tt>. It is automatically created by
 <a href="s6-supervise.html">s6-supervise</a> if it does not exist. This is where
@@ -122,10 +126,6 @@ must be writable. </li>
 the default state of the service is considered down, not up: s6-supervise will not
 automatically start it until it receives a <tt>s6-svc -u</tt> command. If no
 <tt>down</tt> file exists, the default state of the service is up. </li>
- <li style="margin-bottom:1em"> An optional, empty, regular file named <tt>nosetsid</tt>. If such a file exists,
-s6-supervise will not make the service a process group and session leader; the service
-will be run in the same process group as s6-supervise. If no <tt>nosetsid</tt> file
-exists, the service has its own process group and is started as a session leader. </li>
  <li style="margin-bottom:1em"> An optional regular file named <tt>notification-fd</tt>. If such a file
 exists, it means that the service supports
 <a href="notifywhenup.html">readiness notification</a>. The file must only
@@ -142,13 +142,13 @@ notification from the service and broadcast readiness, i.e. any
 triggered. </li>
  <li style="margin-bottom:1em"> An optional regular file named <tt>timeout-kill</tt>. If such a file
 exists, it must only contain an unsigned integer <em>t</em>. If <em>t</em>
-is nonzero, then on receipt of a <a href="s6-svc.html">s6-svc -d</a> command,
+is nonzero, then on receipt of an <a href="s6-svc.html">s6-svc -d</a> command,
 which sends a SIGTERM (by default, see <tt>down-signal</tt> below) and a
 SIGCONT to the service, a timeout of <em>t</em>
 milliseconds is set; and if the service is still not dead after <em>t</em>
 milliseconds, then it is sent a SIGKILL. If <tt>timeout-kill</tt> does not
 exist, or contains 0 or an invalid value, then the service is never
-forcibly killed (unless, of course, a <a href="s6-svc.html">s6-svc -k</a>
+forcibly killed (unless, of course, an <a href="s6-svc.html">s6-svc -k</a>
 command is sent). </li>
  <li style="margin-bottom:1em"> An optional regular file named <tt>timeout-finish</tt>. If such a file
 exists, it must only contain an unsigned integer, which is the number of
@@ -209,7 +209,7 @@ directory.
 </p>
 
 <a name="where">
- <h2> Where to store my service directories&nbsp;? </h2>
+ <h2> Where should I store my service directories? </h2>
 </a>
 
 <p>
@@ -241,7 +241,7 @@ collection. This is the easy setup, not requiring an external init system
 to mount your filesystems - however, it requires your root filesystem to be
 read-write, which is unacceptable if you are concerned with reliability - if
 you are, for instance, designing an embedded platform. </li>
- <li> <a href="http://code.dogmap.org/">Some people</a> like to have
+ <li> <a href="https://code.dogmap.org/">Some people</a> like to have
 their service directories in a read-only filesystem, with <tt>supervise</tt>
 symlinks pointing to various places in writable filesystems. This setup looks
 a bit complex to me: it requires careful handling of the writable

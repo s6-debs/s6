@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <signal.h>
 
+#include <skalibs/posixplz.h>
 #include <skalibs/allreadwrite.h>
 #include <skalibs/sgetopt.h>
 #include <skalibs/types.h>
@@ -18,14 +19,16 @@
 #include <skalibs/direntry.h>
 #include <skalibs/sig.h>
 #include <skalibs/selfpipe.h>
-#include <skalibs/environ.h>
+#include <skalibs/exec.h>
 
 #include <s6/config.h>
 #include <s6/s6-supervise.h>
 
-#define USAGE "s6-svscan [ -S | -s ] [ -c maxservices ] [ -t timeout ] [ -d notif ] [ -X consoleholder ] [ dir ]"
+#define USAGE "s6-svscan [ -c maxservices ] [ -t timeout ] [ -d notif ] [ -X consoleholder ] [ dir ]"
 #define dieusage() strerr_dieusage(100, USAGE)
 
+#define CTL S6_SVSCAN_CTLDIR "/control"
+#define LCK S6_SVSCAN_CTLDIR "/lock"
 #define FINISH_PROG S6_SVSCAN_CTLDIR "/finish"
 #define CRASH_PROG S6_SVSCAN_CTLDIR "/crash"
 #define SIGNAL_PROG S6_SVSCAN_CTLDIR "/SIG"
@@ -50,16 +53,16 @@ static struct svinfo_s *services ;
 static unsigned int max = 500 ;
 static unsigned int n = 0 ;
 static tain_t deadline, defaulttimeout ;
-static char const *finish_arg = "reboot" ;
 static int wantreap = 1 ;
 static int wantscan = 1 ;
 static unsigned int wantkill = 0 ;
 static int cont = 1 ;
-static unsigned int consoleholder = 0 ;
+static int waitall = 1 ;
+static int consoleholder = -1 ;
 
 static void restore_console (void)
 {
-  if (consoleholder)
+  if (consoleholder >= 0)
   {
     fd_move(2, consoleholder) ;
     if (fd_copy(1, 2) < 0) strerr_warnwu1sys("restore stdout") ;
@@ -102,56 +105,69 @@ static void killthem (void)
   wantkill = 0 ;
 }
 
-static void term (void)
+static inline void closethem (void)
+{
+  unsigned int i = 0 ;
+  for (; i < n ; i++) if (services[i].flaglog)
+  {
+    if (services[i].p[1] >= 0) close(services[i].p[1]) ;
+    if (services[i].p[0] >= 0) close(services[i].p[0]) ;
+  }
+}
+
+static inline void waitthem (void)
+{
+  unsigned int m = 0 ;
+  unsigned int i = 0 ;
+  pid_t pids[n << 1] ;
+  for (; i < n ; i++)
+  {
+    if (services[i].pid[0])
+      pids[m++] = services[i].pid[0] ;
+    if (services[i].flaglog && services[i].pid[1])
+      pids[m++] = services[i].pid[1] ;
+  }
+  if (!waitn(pids, m))
+    strerr_warnwu1sys("wait for all s6-supervise processes") ;
+}
+
+static inline void chld (void)
+{
+  wantreap = 1 ;
+}
+
+static inline void alrm (void)
+{
+  wantscan = 1 ;
+}
+
+static inline void abrt (void)
 {
   cont = 0 ;
-  wantkill = 3 ;
+  waitall = 0 ;
 }
 
 static void hup (void)
 {
+  wantkill = 2 ;
+  wantscan = 1 ;
+}
+
+static void term (void)
+{
   cont = 0 ;
-  wantkill = 1 ;
+  waitall = 1 ;
+  wantkill = 3 ;
 }
 
 static void quit (void)
 {
   cont = 0 ;
+  waitall = 1 ;
   wantkill = 7 ;
 }
 
-static void intr (void)
-{
-  finish_arg = "reboot" ;
-  term() ;
-}
-
-static void usr1 (void)
-{
-  finish_arg = "poweroff" ;
-  term() ;
-}
-
 static void handle_signals (void)
-{
-  for (;;)
-  {
-    switch (selfpipe_read())
-    {
-      case -1 : panic("selfpipe_read") ;
-      case 0 : return ;
-      case SIGCHLD : wantreap = 1 ; break ;
-      case SIGALRM : wantscan = 1 ; break ;
-      case SIGABRT : cont = 0 ; break ;
-      case SIGTERM : term() ; break ;
-      case SIGHUP : hup() ; break ;
-      case SIGQUIT : quit() ; break ;
-      case SIGINT : intr() ; break ;
-    }
-  }
-}
-
-static void handle_diverted_signals (void)
 {
   for (;;)
   {
@@ -160,9 +176,9 @@ static void handle_diverted_signals (void)
     {
       case -1 : panic("selfpipe_read") ;
       case 0 : return ;
-      case SIGCHLD : wantreap = 1 ; break ;
-      case SIGALRM : wantscan = 1 ; break ;
-      case SIGABRT : cont = 0 ; break ;
+      case SIGCHLD : chld() ; break ;
+      case SIGALRM : alrm() ; break ;
+      case SIGABRT : abrt() ; break ;
       default :
       {
         char const *name = sig_name(sig) ;
@@ -172,7 +188,16 @@ static void handle_diverted_signals (void)
         memcpy(fn, SIGNAL_PROG, SIGNAL_PROG_LEN) ;
         memcpy(fn + SIGNAL_PROG_LEN, name, len + 1) ;
         if (!child_spawn0(newargv[0], newargv, (char const **)environ))
-          strerr_warnwu2sys("spawn ", newargv[0]) ;
+        {
+          if (errno != ENOENT) strerr_warnwu2sys("spawn ", newargv[0]) ;
+          switch (sig)
+          {
+            case SIGHUP : hup() ; break ;
+            case SIGINT :
+            case SIGTERM : term() ; break ;
+            case SIGQUIT : quit() ; break ;
+          }
+        }
       }
     }
   }
@@ -188,22 +213,15 @@ static void handle_control (int fd)
     else if (!r) break ;
     else switch (c)
     {
-      case 'p' : finish_arg = "poweroff" ; break ;
-      case 'h' : hup() ; return ;
-      case 'r' : finish_arg = "reboot" ; break ;
-      case 'a' : wantscan = 1 ; break ;
-      case 't' : term() ; return ;
-      case 's' : finish_arg = "halt" ; break ;
-      case 'z' : wantreap = 1 ; break ;
-      case 'b' : cont = 0 ; return ;
+      case 'z' : chld() ; break ;
+      case 'a' : alrm() ; break ;
+      case 'b' : abrt() ; break ;
+      case 'h' : hup() ; break ;
+      case 'i' :
+      case 't' : term() ; break ;
+      case 'q' : quit() ; break ;
       case 'n' : wantkill = 2 ; break ;
       case 'N' : wantkill = 6 ; break ;
-      case '6' :
-      case 'i' : intr() ; return ;
-      case 'q' : quit() ; return ;
-      case '0' : finish_arg = "halt" ; term() ; return ;
-      case '7' : usr1() ; return ;
-      case '8' : finish_arg = "other" ; term() ; return ;
       default :
       {
         char s[2] = { c, 0 } ;
@@ -312,11 +330,11 @@ static void trystart (unsigned int i, char const *name, int islog)
       if (services[i].flaglog)
         if (fd_move(!islog, services[i].p[!islog]) == -1)
           strerr_diefu2sys(111, "set fds for ", name) ;
-      if (consoleholder
+      if (consoleholder >= 0
        && !strcmp(name, SPECIAL_LOGGER_SERVICE)
        && fd_move(2, consoleholder) < 0)  /* autoclears coe */
          strerr_diefu1sys(111, "restore console fd for service " SPECIAL_LOGGER_SERVICE) ;
-      xpathexec_run(S6_BINPREFIX "s6-supervise", cargv, (char const **)environ) ;
+      xexec_a(S6_BINPREFIX "s6-supervise", cargv) ;
     }
   }
   services[i].pid[islog] = pid ;
@@ -329,7 +347,7 @@ static void retrydirlater (void)
   if (tain_less(&a, &deadline)) deadline = a ;
 }
 
-static void check (char const *name)
+static inline void check (char const *name)
 {
   struct stat st ;
   size_t namelen ;
@@ -420,7 +438,7 @@ static void check (char const *name)
   }
 }
 
-static void scan (void)
+static inline void scan (void)
 {
   unsigned int i = 0 ;
   DIR *dir ;
@@ -464,36 +482,68 @@ static void scan (void)
   }
 }
 
+static inline int control_init (void)
+{
+  mode_t m = umask(0) ;
+  int fdctl, fdlck, r ;
+  if (mkdir(S6_SVSCAN_CTLDIR, 0700) < 0)
+  {
+    struct stat st ;
+    if (errno != EEXIST)
+      strerr_diefu1sys(111, "mkdir " S6_SVSCAN_CTLDIR) ;
+    if (stat(S6_SVSCAN_CTLDIR, &st) < 0)
+      strerr_diefu1sys(111, "stat " S6_SVSCAN_CTLDIR) ;
+    if (!S_ISDIR(st.st_mode))
+      strerr_dief1x(100, S6_SVSCAN_CTLDIR " exists and is not a directory") ;
+  }
+
+  fdlck = open(LCK, O_WRONLY | O_NONBLOCK | O_CREAT | O_CLOEXEC, 0600) ;
+  if (fdlck < 0) strerr_diefu1sys(111, "open " LCK) ;
+  r = fd_lock(fdlck, 1, 1) ;
+  if (r < 0) strerr_diefu1sys(111, "lock " LCK) ;
+  if (!r) strerr_dief1x(100, "another instance of s6-svscan is already running on the same directory") ;
+ /* fdlck leaks but it's coe */
+
+  if (mkfifo(CTL, 0600) < 0)
+  {
+    struct stat st ;
+    if (errno != EEXIST)
+      strerr_diefu1sys(111, "mkfifo " CTL) ;
+    if (stat(CTL, &st) < 0)
+      strerr_diefu1sys(111, "stat " CTL) ;
+    if (!S_ISFIFO(st.st_mode))
+      strerr_dief1x(100, CTL " is not a FIFO") ;
+  }
+  fdctl = openc_read(CTL) ;
+  if (fdctl < 0)
+    strerr_diefu1sys(111, "open " CTL " for reading") ;
+  r = openc_write(CTL) ;
+  if (r < 0)
+    strerr_diefu1sys(111, "open " CTL " for writing") ;
+ /* r leaks but it's coe */
+
+  umask(m) ;
+  return fdctl ;
+}
 
 int main (int argc, char const *const *argv)
 {
   iopause_fd x[2] = { { -1, IOPAUSE_READ, 0 }, { -1, IOPAUSE_READ, 0 } } ;
-  int divertsignals = 0 ;
-  unsigned int notif = 0 ;
+  int notif = -1 ;
   PROG = "s6-svscan" ;
   {
     subgetopt_t l = SUBGETOPT_ZERO ;
     unsigned int t = 0 ;
     for (;;)
     {
-      int opt = subgetopt_r(argc, argv, "Sst:c:d:X:", &l) ;
+      int opt = subgetopt_r(argc, argv, "c:t:d:X:", &l) ;
       if (opt == -1) break ;
       switch (opt)
       {
-        case 'S' : divertsignals = 0 ; break ;
-        case 's' : divertsignals = 1 ; break ;
-        case 't' : if (uint0_scan(l.arg, &t)) break ;
         case 'c' : if (uint0_scan(l.arg, &max)) break ;
-        case 'd' :
-          if (!uint0_scan(l.arg, &notif)) dieusage() ;
-          if (notif < 3) strerr_dief1x(100, "notification fd must be 3 or more") ;
-          if (fcntl(notif, F_GETFD) < 0) strerr_dief1sys(100, "invalid notification fd") ;
-          break ;
-        case 'X' :
-          if (!uint0_scan(l.arg, &consoleholder)) dieusage() ;
-          if (consoleholder < 3) strerr_dief1x(100, "console holder fd must be 3 or more") ;
-          if (fcntl(consoleholder, F_GETFD) < 0) strerr_dief1sys(100, "invalid console holder fd") ;
-          break ;
+        case 't' : if (uint0_scan(l.arg, &t)) break ;
+        case 'd' : { unsigned int u ; if (!uint0_scan(l.arg, &u)) dieusage() ; notif = u ; break ; }
+        case 'X' : { unsigned int u ; if (!uint0_scan(l.arg, &u)) dieusage() ; consoleholder = u ; break ; }
         default : dieusage() ;
       }
     }
@@ -503,15 +553,20 @@ int main (int argc, char const *const *argv)
     if (max < 2) max = 2 ;
   }
 
-  /* Init phase.
-     If something fails here, we can die, because it means that
-     something is seriously wrong with the system, and we can't
-     run correctly anyway.
-  */
+  if (notif >= 0)
+  {
+    if (notif < 3) strerr_dief1x(100, "notification fd must be 3 or more") ;
+    if (fcntl(notif, F_GETFD) < 0) strerr_dief1sys(100, "invalid notification fd") ;
+  }
+  if (consoleholder >= 0)
+  {
+    if (consoleholder < 3) strerr_dief1x(100, "console holder fd must be 3 or more") ;
+    if (fcntl(consoleholder, F_GETFD) < 0) strerr_dief1sys(100, "invalid console holder fd") ;
+    if (coe(consoleholder) < 0) strerr_diefu1sys(111, "coe console holder") ;
+  }
 
   if (argc && (chdir(argv[0]) < 0)) strerr_diefu1sys(111, "chdir") ;
-  if (consoleholder && coe(consoleholder) < 0) strerr_diefu1sys(111, "coe console holder") ;
-  x[1].fd = s6_supervise_lock(S6_SVSCAN_CTLDIR) ;
+  x[1].fd = control_init() ;
   x[0].fd = selfpipe_init() ;
   if (x[0].fd < 0) strerr_diefu1sys(111, "selfpipe_init") ;
 
@@ -521,29 +576,26 @@ int main (int argc, char const *const *argv)
     sigemptyset(&set) ;
     sigaddset(&set, SIGCHLD) ;
     sigaddset(&set, SIGALRM) ;
-    sigaddset(&set, SIGTERM) ;
-    sigaddset(&set, SIGHUP) ;
-    sigaddset(&set, SIGQUIT) ;
     sigaddset(&set, SIGABRT) ;
+    sigaddset(&set, SIGHUP) ;
     sigaddset(&set, SIGINT) ;
-    if (divertsignals)
-    {
-      sigaddset(&set, SIGUSR1) ;
-      sigaddset(&set, SIGUSR2) ;
+    sigaddset(&set, SIGTERM) ;
+    sigaddset(&set, SIGQUIT) ;
+    sigaddset(&set, SIGUSR1) ;
+    sigaddset(&set, SIGUSR2) ;
 #ifdef SIGPWR
-      sigaddset(&set, SIGPWR) ;
+    sigaddset(&set, SIGPWR) ;
 #endif
 #ifdef SIGWINCH
-      sigaddset(&set, SIGWINCH) ;
+    sigaddset(&set, SIGWINCH) ;
 #endif
-    }
     if (selfpipe_trapset(&set) < 0) strerr_diefu1sys(111, "trap signals") ;
   }
-  if (notif)
+  if (notif >= 0)
   {
     fd_write(notif, "\n", 1) ;
     fd_close(notif) ;
-    notif = 0 ;
+    notif = -1 ;
   }
 
   {
@@ -551,9 +603,7 @@ int main (int argc, char const *const *argv)
     services = blob ;
     tain_now_set_stopwatch_g() ;
 
-
-    /* Loop phase.
-       From now on, we must not die.
+    /* From now on, we must not die.
        Temporize on recoverable errors, and panic on serious ones. */
 
     while (cont)
@@ -572,8 +622,7 @@ int main (int argc, char const *const *argv)
           errno = EIO ;
           panic("check internal pipes") ;
         }
-        if (x[0].revents & IOPAUSE_READ)
-          divertsignals ? handle_diverted_signals() : handle_signals() ;
+        if (x[0].revents & IOPAUSE_READ) handle_signals() ;
         if (x[1].revents & IOPAUSE_READ) handle_control(x[1].fd) ;
       }
     }
@@ -581,14 +630,16 @@ int main (int argc, char const *const *argv)
 
     /* Finish phase. */
 
-    selfpipe_finish() ;
     killthem() ;
+    closethem() ;
     restore_console() ;
-    reap() ;
+    if (waitall) waitthem() ; else { chld() ; reap() ; }
+    selfpipe_finish() ;
   }
   {
-    char const *eargv[3] = { FINISH_PROG, finish_arg, 0 } ;
+    char const *eargv[2] = { FINISH_PROG, 0 } ;
     execv(eargv[0], (char **)eargv) ;
+    if (errno != ENOENT) panicnosp("exec finish script " FINISH_PROG) ;
   }
-  panicnosp("exec finish script " FINISH_PROG) ;
+  return 0 ;
 }
