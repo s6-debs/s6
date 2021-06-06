@@ -1,4 +1,10 @@
-s6 (2.10.0.2-1) buster; urgency=medium
+s6 (2.10.0.3-1) stable; urgency=medium
+
+  * New upstream release.
+
+ -- multi <multi@in-addr.xyz>  Sun, 06 Jun 2021 16:35:14 +0100
+
+s6 (2.10.0.2-1) stable; urgency=medium
 
   * New upstream version.
 
